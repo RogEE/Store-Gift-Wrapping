@@ -34,6 +34,7 @@ class Store_gift_wrapping_ext {
 	public $version			= '0.0.1';
 	
 	private $EE;
+	private $cart_contents = array();
 	
 	/**
 	 * Constructor
@@ -44,6 +45,9 @@ class Store_gift_wrapping_ext {
 	{
 		$this->EE =& get_instance();
 		$this->settings = $settings;
+		
+
+				
 	}
 	
 	// ----------------------------------------------------------------------
@@ -84,28 +88,135 @@ class Store_gift_wrapping_ext {
 		
 		$data = array(
 			'class'		=> __CLASS__,
-			'method'	=> 'some_function',
-			'hook'		=> 'some_hook',
+			'method'	=> 'on_store_cart_update_start',
+			'hook'		=> 'store_cart_update_start',
 			'settings'	=> serialize($this->settings),
 			'version'	=> $this->version,
 			'enabled'	=> 'y'
 		);
 
-		$this->EE->db->insert('extensions', $data);			
+		$this->EE->db->insert('extensions', $data);
 		
 	}	
 
 	// ----------------------------------------------------------------------
 	
 	/**
-	 * some_function
+	 * store_cart_update_end
 	 *
 	 * @param 
 	 * @return 
 	 */
-	public function some_function()
+	public function on_store_cart_update_start($cart_contents)
 	{
-		// Add Code for the some_hook hook here.  
+
+		$this->cart_contents = $cart_contents;
+		
+		$this->cart_contents['gw_cart_updated'] = date(DATE_RFC1036);
+		
+		/*
+		echo "<pre>";
+		if ( ! isset($this->EE->store_cart)) { debug_print_backtrace(); exit; }
+		echo "</pre>";
+		*/
+		
+		$this->insert(3,1,array(),array('Message'=>'this is the message!'),TRUE);
+		
+		mail("michael@michaelrog.com", "on_store_cart_update_end: ".$this->EE->uri->uri_string(), print_r($this->cart_contents, TRUE));
+		
+		return $this->cart_contents;
+		
+	}
+
+	// ----------------------------------------------------------------------
+
+	/**
+	 * store_order_submit_start
+	 *
+	 * @param 
+	 * @return 
+	 */
+	public function on_store_order_submit_start($order_data)
+	{
+
+		// $order_data['gw_order_submitted'] = date(DATE_RFC1036);
+		
+		mail("michael@michaelrog.com", "on_store_order_submit_start: ".$this->EE->uri->uri_string(), print_r($order_data, TRUE));
+
+		return $order_data;
+		
+	}
+	
+	// ----------------------------------------------------------------------
+	
+	/**
+	 * Adds item to the current cart
+	 */
+	protected function insert($entry_id, $item_qty, $mod_values, $input_values, $update_qty = TRUE)
+	{
+	
+		if (empty($this->cart_contents['items'])) $this->cart_contents['items'] = array();
+
+		// check item doesn't already exist in cart
+		if (empty($mod_values) OR ! is_array($mod_values)) $mod_values = array();
+		if (empty($input_values) OR ! is_array($input_values)) $input_values = array();
+
+		$existing_key = $this->find($entry_id, $mod_values, $input_values);
+
+		if ($existing_key === FALSE)
+		{
+			// add to cart
+			$item = array(
+				'key' => $this->_next_key(),
+				'entry_id' => $entry_id,
+				'item_qty' => $item_qty,
+				'mod_values' => $mod_values,
+				'input_values' => $input_values
+			);
+
+			$this->cart_contents['items'][$item['key']] = $item;
+		}
+		else
+		{
+			// update item
+			$this->cart_contents['items'][$existing_key] = array(
+				'key' => $existing_key,
+				'entry_id' => $entry_id,
+				'item_qty' => ($update_qty ? $item_qty : $this->cart_contents['items'][$existing_key]['item_qty'] + $item_qty),
+				'mod_values' => $mod_values,
+				'input_values' => $input_values
+			);
+		}
+		
+	}
+
+	/**
+	 * Find the key of a specified product in the array, if it exists
+	 */
+	protected function find($entry_id, $mod_values, $input_values)
+	{
+		foreach ($this->cart_contents['items'] as $item_key => $item)
+		{
+			if
+			(
+				$item['entry_id'] == $entry_id AND
+				$item['mod_values'] == $mod_values // AND
+				// $item['input_values'] == $input_values
+			)
+			{
+				return $item_key;
+			}
+		}
+
+		return FALSE;
+	}
+	
+	/**
+	 * Find the next available item key for the current cart
+	 */
+	protected function _next_key()
+	{
+		return empty($this->cart_contents) ? 0 : max(array_keys($this->cart_contents['items'])) + 1;
 	}
 
 	// ----------------------------------------------------------------------
