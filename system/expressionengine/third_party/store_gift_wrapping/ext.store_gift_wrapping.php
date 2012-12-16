@@ -28,10 +28,10 @@ class Store_gift_wrapping_ext {
 	
 	public $settings 		= array();
 	public $description		= 'Adds/removes a Gift Wrapping item when the cart is updated.';
-	public $docs_url		= '';
+	public $docs_url		= 'http://rog.ee';
 	public $name			= 'Store: Gift Wrapping';
 	public $settings_exist	= 'y';
-	public $version			= '0.0.1';
+	public $version			= '0.0.2';
 	
 	private $EE;
 	private $cart_contents = array();
@@ -45,9 +45,6 @@ class Store_gift_wrapping_ext {
 	{
 		$this->EE =& get_instance();
 		$this->settings = $settings;
-		
-
-				
 	}
 	
 	// ----------------------------------------------------------------------
@@ -64,9 +61,22 @@ class Store_gift_wrapping_ext {
 	 */
 	public function settings()
 	{
-		return array(
-			
-		);
+
+		$settings = array();
+		
+		$settings['store_gw_quantity_field'] = array('i', '', "store_gw_qty");
+		$settings['store_gw_quantity_default'] = array('i', '', "0");
+		
+		$settings['store_gw_action_field'] = array('i', '', "store_gw_act");
+		$settings['store_gw_action_default'] = array('r', array('a'=>'store_gw_add','u'=>'store_gw_update','n'=>'store_gw_nothing'), "n");
+		
+		$settings['store_gw_message_field'] = array('i', '', "store_gw_message");
+
+		$settings['store_gw_product_id'] = array('i', '', '');
+		$settings['store_gw_allow_multiple'] = array('r', array('y'=>'store_gw_yes','n'=>'store_gw_no'), "n");
+				
+		return $settings;
+
 	}
 	
 	// ----------------------------------------------------------------------
@@ -110,19 +120,66 @@ class Store_gift_wrapping_ext {
 	public function on_store_cart_update_start($cart_contents)
 	{
 
+		// If there's another extension in the pipe before us, play nice
+		if ($this->EE->extensions->last_call !== FALSE)
+		{
+			$cart_contents = $this->EE->extensions->last_call;
+		}
 		$this->cart_contents = $cart_contents;
 		
-		$this->cart_contents['gw_cart_updated'] = date(DATE_RFC1036);
+		// unique timestamp, for debugging purposes		
+		$this->cart_contents['gw_submitted'] = date(DATE_RFC1036);
+
+		// get Product ID of giftwrapping item
+		$gw_id = intval($this->settings['store_gw_product_id']);
+		// debug
+		$this->cart_contents['gw_product_id'] = $gw_id;
+		
+		// get Action input, if there is one
+		$gw_action_input = $this->EE->input->post($this->settings['store_gw_action_field'], TRUE);
+		// debug
+		$this->cart_contents['gw_submitted_action'] = $gw_action_input;
+		// validate and apply default if needed
+		$gw_action = (in_array($gw_action_input,array('a','u','n')) ? $gw_action_input : $this->settings['store_gw_action_default']);
+		// debug
+		$this->cart_contents['gw_action'] = $gw_action;
+		
+		// only continue if there is a giftwrapping item specified
+		// only continue if the action is not "Do Nothing"
+		if ($gw_id AND $gw_action != 'n')
+		{
+		
+			// get Quantity input, if there is one
+			$gw_qty_input = $this->EE->input->post($this->settings['store_gw_quantity_field'], TRUE);
+			// debug
+			$this->cart_contents['gw_submitted_qty'] = $gw_qty_input;
+			// sanitize and apply default if needed
+			$gw_qty = ($gw_qty_input === FALSE ? intval($this->settings['store_gw_quantity_default']) : intval($gw_qty_input));
+			// debug
+			$this->cart_contents['gw_qty'] = $gw_qty;
+
+			// get Message input, if there is one
+			$gw_message_input = $this->EE->input->post($this->settings['store_gw_message_field'], TRUE);
+			// debug
+			$this->cart_contents['gw_submitted_message'] = $gw_message_input;
+			// If there's a message, place it in the input values array. Else, input values is empty.
+			$input_values_array = ($gw_message_input === FALSE ? array() : array('Message' => $gw_message_input));
+			
+			// Mod values array is empty no matter what, for standardization
+			$mod_values_array = array();
+
+			// Are we updating quantity, or adding?
+			$gw_update = $gw_action == 'u' ? TRUE : FALSE;
+			// debug
+			$this->cart_contents['gw_update'] = $gw_update;
+		
+			$this->insert($gw_id,$gw_qty,$mod_values_array,$input_values_array,$gw_update);
+		
+		}
 		
 		/*
-		echo "<pre>";
-		if ( ! isset($this->EE->store_cart)) { debug_print_backtrace(); exit; }
-		echo "</pre>";
-		*/
-		
-		$this->insert(3,1,array(),array('Message'=>'this is the message!'),TRUE);
-		
 		mail("michael@michaelrog.com", "on_store_cart_update_end: ".$this->EE->uri->uri_string(), print_r($this->cart_contents, TRUE));
+		*/
 		
 		return $this->cart_contents;
 		
@@ -130,24 +187,6 @@ class Store_gift_wrapping_ext {
 
 	// ----------------------------------------------------------------------
 
-	/**
-	 * store_order_submit_start
-	 *
-	 * @param 
-	 * @return 
-	 */
-	public function on_store_order_submit_start($order_data)
-	{
-
-		// $order_data['gw_order_submitted'] = date(DATE_RFC1036);
-		
-		mail("michael@michaelrog.com", "on_store_order_submit_start: ".$this->EE->uri->uri_string(), print_r($order_data, TRUE));
-
-		return $order_data;
-		
-	}
-	
-	// ----------------------------------------------------------------------
 	
 	/**
 	 * Adds item to the current cart
@@ -155,6 +194,26 @@ class Store_gift_wrapping_ext {
 	protected function insert($entry_id, $item_qty, $mod_values, $input_values, $update_qty = TRUE)
 	{
 	
+		/*
+		$email_debug = 
+			print_r($entry_id, TRUE)
+			."\n
+			"
+			.print_r($item_qty, TRUE)
+			."\n
+			"
+			.print_r($mod_values, TRUE)
+			."\n
+			"
+			.print_r($input_values, TRUE)
+			."\n
+			"
+			.print_r($update_qty, TRUE)
+		;
+		mail("michael@michaelrog.com", "insert: ".$this->EE->uri->uri_string(), $email_debug);
+		*/
+		
+		
 		if (empty($this->cart_contents['items'])) $this->cart_contents['items'] = array();
 
 		// check item doesn't already exist in cart
@@ -165,6 +224,7 @@ class Store_gift_wrapping_ext {
 
 		if ($existing_key === FALSE)
 		{
+		
 			// add to cart
 			$item = array(
 				'key' => $this->_next_key(),
@@ -175,6 +235,7 @@ class Store_gift_wrapping_ext {
 			);
 
 			$this->cart_contents['items'][$item['key']] = $item;
+			
 		}
 		else
 		{
@@ -195,16 +256,29 @@ class Store_gift_wrapping_ext {
 	 */
 	protected function find($entry_id, $mod_values, $input_values)
 	{
+		
+		$this->cart_contents['gw_allow_multiple'] = $this->settings['store_gw_allow_multiple'];
+		
 		foreach ($this->cart_contents['items'] as $item_key => $item)
 		{
 			if
 			(
-				$item['entry_id'] == $entry_id AND
-				$item['mod_values'] == $mod_values // AND
-				// $item['input_values'] == $input_values
+				$item['entry_id'] == $entry_id
+				AND $item['mod_values'] == $mod_values
+				AND ($this->settings['store_gw_allow_multiple'] == 'n' OR $item['input_values'] == $input_values)
 			)
 			{
+
+				/*
+				$email_debug = 
+					"Existing key found! "
+					.print_r($item_key, TRUE)
+				;
+				mail("michael@michaelrog.com", "find: ".$this->EE->uri->uri_string(), $email_debug);
+				*/
+
 				return $item_key;
+				
 			}
 		}
 
@@ -216,7 +290,7 @@ class Store_gift_wrapping_ext {
 	 */
 	protected function _next_key()
 	{
-		return empty($this->cart_contents) ? 0 : max(array_keys($this->cart_contents['items'])) + 1;
+		return (empty($this->cart_contents) OR empty($this->cart_contents['items'])) ? 0 : max(array_keys($this->cart_contents['items'])) + 1;
 	}
 
 	// ----------------------------------------------------------------------
