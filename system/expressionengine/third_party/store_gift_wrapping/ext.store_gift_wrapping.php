@@ -31,7 +31,7 @@ class Store_gift_wrapping_ext {
 	public $docs_url		= 'http://rog.ee';
 	public $name			= 'Store: Gift Wrapping';
 	public $settings_exist	= 'y';
-	public $version			= '0.0.2';
+	public $version			= '0.0.3';
 	
 	private $EE;
 	private $cart_contents = array();
@@ -106,13 +106,25 @@ class Store_gift_wrapping_ext {
 		);
 
 		$this->EE->db->insert('extensions', $data);
+
+		$data = array(
+			'class'		=> __CLASS__,
+			'method'	=> 'on_store_cart_update_end',
+			'hook'		=> 'store_cart_update_end',
+			'settings'	=> serialize($this->settings),
+			'version'	=> $this->version,
+			'enabled'	=> 'y'
+		);
+
+		$this->EE->db->insert('extensions', $data);
 		
 	}	
 
 	// ----------------------------------------------------------------------
-	
+
+
 	/**
-	 * store_cart_update_end
+	 * on_store_cart_update_start
 	 *
 	 * @param 
 	 * @return 
@@ -177,13 +189,37 @@ class Store_gift_wrapping_ext {
 		
 		}
 		
-		/*
-		mail("michael@michaelrog.com", "on_store_cart_update_end: ".$this->EE->uri->uri_string(), print_r($this->cart_contents, TRUE));
-		*/
+		return $this->cart_contents;
+		
+	} // on_store_cart_update_start
+
+	// ----------------------------------------------------------------------
+
+	
+	/**
+	 * on_store_cart_update_end
+	 *
+	 * @param 
+	 * @return 
+	 */
+	public function on_store_cart_update_end($cart_contents)
+	{
+
+		// If there's another extension in the pipe before us, play nice
+		if ($this->EE->extensions->last_call !== FALSE)
+		{
+			$cart_contents = $this->EE->extensions->last_call;
+		}
+
+		$cart_contents['gw_cart_contents_printr'] = "";
+
+		$this->cart_contents = $cart_contents;
+
+		$this->cart_contents['gw_cart_contents_printr'] = print_r($cart_contents,TRUE);
 		
 		return $this->cart_contents;
 		
-	}
+	} // on_store_cart_update_end
 
 	// ----------------------------------------------------------------------
 
@@ -192,27 +228,7 @@ class Store_gift_wrapping_ext {
 	 * Adds item to the current cart
 	 */
 	protected function insert($entry_id, $item_qty, $mod_values, $input_values, $update_qty = TRUE)
-	{
-	
-		/*
-		$email_debug = 
-			print_r($entry_id, TRUE)
-			."\n
-			"
-			.print_r($item_qty, TRUE)
-			."\n
-			"
-			.print_r($mod_values, TRUE)
-			."\n
-			"
-			.print_r($input_values, TRUE)
-			."\n
-			"
-			.print_r($update_qty, TRUE)
-		;
-		mail("michael@michaelrog.com", "insert: ".$this->EE->uri->uri_string(), $email_debug);
-		*/
-		
+	{	
 		
 		if (empty($this->cart_contents['items'])) $this->cart_contents['items'] = array();
 
@@ -268,14 +284,6 @@ class Store_gift_wrapping_ext {
 				AND ($this->settings['store_gw_allow_multiple'] == 'n' OR $item['input_values'] == $input_values)
 			)
 			{
-
-				/*
-				$email_debug = 
-					"Existing key found! "
-					.print_r($item_key, TRUE)
-				;
-				mail("michael@michaelrog.com", "find: ".$this->EE->uri->uri_string(), $email_debug);
-				*/
 
 				return $item_key;
 				
