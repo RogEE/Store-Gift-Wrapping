@@ -31,7 +31,7 @@ class Store_gift_wrapping_ext {
 	public $docs_url		= 'http://rog.ee';
 	public $name			= 'Store: Gift Wrapping';
 	public $settings_exist	= 'y';
-	public $version			= '0.0.3';
+	public $version			= '0.0.4';
 	
 	private $EE;
 	private $cart_contents = array();
@@ -206,16 +206,55 @@ class Store_gift_wrapping_ext {
 	{
 
 		// If there's another extension in the pipe before us, play nice
+		
 		if ($this->EE->extensions->last_call !== FALSE)
 		{
 			$cart_contents = $this->EE->extensions->last_call;
 		}
 
+		// Add a few more gw_ helper variables
+		
+		$qty_in_cart = 0;
+		$subtotal = 0;
+		$total = 0;
+		$order_subtotal_sans_giftwrapping = 0;
+		$order_total_sans_giftwrapping = 0;
+		
+		$gw_id = intval($this->settings['store_gw_product_id']);
+		
+		foreach (($cart_contents['items']) as $item)
+		{
+			if ($item['entry_id'] == $gw_id)
+			{
+				$qty_in_cart += $item['item_qty'];
+				$subtotal += $item['item_subtotal_val'];
+				$total += $item['item_total_val'];
+			}
+		}
+		
+		$order_subtotal_sans_giftwrapping = $cart_contents['order_subtotal_val'] - $subtotal;
+		$order_total_sans_giftwrapping = $cart_contents['order_total_val'] - $total;
+
+		$this->EE->load->add_package_path(PATH_THIRD.'store/', TRUE);
+		$this->EE->load->helper('store_helper');
+		
+		$cart_contents['gw_qty_in_cart'] = $qty_in_cart;
+		$cart_contents['gw_subtotal_val'] = $subtotal;
+		$cart_contents['gw_subtotal'] = store_format_currency($cart_contents['gw_subtotal_val']);
+		$cart_contents['gw_total_val'] = $total;
+		$cart_contents['gw_total'] = store_format_currency($cart_contents['gw_total_val']);
+		$cart_contents['gw_order_subtotal_sans_giftwrapping_val'] = $order_subtotal_sans_giftwrapping;
+		$cart_contents['gw_order_subtotal_sans_giftwrapping'] = store_format_currency($cart_contents['gw_order_subtotal_sans_giftwrapping_val']);
+		$cart_contents['gw_order_total_sans_giftwrapping_val'] = $order_total_sans_giftwrapping;
+		$cart_contents['gw_order_total_sans_giftwrapping'] = store_format_currency($cart_contents['gw_order_total_sans_giftwrapping_val']);
+
+		// Add a cart_contents printout for front-end debugging
+		
 		$cart_contents['gw_cart_contents_printr'] = "";
-
 		$this->cart_contents = $cart_contents;
-
 		$this->cart_contents['gw_cart_contents_printr'] = print_r($cart_contents,TRUE);
+		
+		// And send it all up the pipe
 		
 		return $this->cart_contents;
 		
