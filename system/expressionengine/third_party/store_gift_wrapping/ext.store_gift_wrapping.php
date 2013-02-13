@@ -31,7 +31,7 @@ class Store_gift_wrapping_ext {
 	public $docs_url		= 'http://rog.ee';
 	public $name			= 'Store: Gift Wrapping';
 	public $settings_exist	= 'y';
-	public $version			= '0.0.5';
+	public $version			= '0.0.8';
 	
 	private $EE;
 	private $cart_contents = array();
@@ -117,8 +117,38 @@ class Store_gift_wrapping_ext {
 		);
 
 		$this->EE->db->insert('extensions', $data);
+
+		$data = array(
+			'class'		=> __CLASS__,
+			'method'	=> 'on_template_fetch_template',
+			'hook'		=> 'template_fetch_template',
+			'settings'	=> serialize($this->settings),
+			'version'	=> $this->version,
+			'enabled'	=> 'y'
+		);
+
+		$this->EE->db->insert('extensions', $data);
 		
 	}	
+
+	// ----------------------------------------------------------------------
+
+
+	/**
+	 * on_template_fetch_template
+	 *
+	 * @param 
+	 * @return 
+	 */
+	public function on_template_fetch_template($row)
+	{
+	
+		$this->EE->config->_global_vars['gw:post_message'] = $this->EE->input->post($this->settings['store_gw_message_field'], TRUE);
+		$this->EE->config->_global_vars['gw:post_action'] = $this->EE->input->post($this->settings['store_gw_action_field'], TRUE);
+		$this->EE->config->_global_vars['gw:post_qty'] = $this->EE->input->post($this->settings['store_gw_quantity_field'], TRUE);
+	
+	} // on_template_fetch_template
+
 
 	// ----------------------------------------------------------------------
 
@@ -129,32 +159,37 @@ class Store_gift_wrapping_ext {
 	 * @param 
 	 * @return 
 	 */
-	public function on_store_cart_update_start($cart_contents)
+	public function on_store_cart_update_start($cart_contents, $update_data)
 	{
-
+		
 		// If there's another extension in the pipe before us, play nice
 		if ($this->EE->extensions->last_call !== FALSE)
 		{
 			$cart_contents = $this->EE->extensions->last_call;
 		}
-		$this->cart_contents = $cart_contents;
 		
-		// unique timestamp, for debugging purposes		
-		$this->cart_contents['gw_submitted'] = date(DATE_RFC1036);
+		// grab cart contents as class variable
+		$this->cart_contents = $cart_contents;
 
+		//debug: progress indicator
+		$this->cart_contents['gw:store_cart_update_start'] = 'y';
+		$this->cart_contents['gw:store_cart_update_start:date'] = date(DATE_RFC1036);
+		$this->cart_contents['gw:store_cart_update_start:time'] = time();
+		$this->cart_contents['gw:store_cart_update_start:update_data'] = $update_data;
+		
 		// get Product ID of giftwrapping item
 		$gw_id = intval($this->settings['store_gw_product_id']);
 		// debug
-		$this->cart_contents['gw_product_id'] = $gw_id;
+		$this->cart_contents['gw:product_id'] = $gw_id;
 		
 		// get Action input, if there is one
 		$gw_action_input = $this->EE->input->post($this->settings['store_gw_action_field'], TRUE);
 		// debug
-		$this->cart_contents['gw_submitted_action'] = $gw_action_input;
+		$this->cart_contents['gw:submitted_action'] = $gw_action_input;
 		// validate and apply default if needed
 		$gw_action = (in_array($gw_action_input,array('a','u','n')) ? $gw_action_input : $this->settings['store_gw_action_default']);
 		// debug
-		$this->cart_contents['gw_action'] = $gw_action;
+		$this->cart_contents['gw:performing_action'] = $gw_action;
 		
 		// only continue if there is a giftwrapping item specified
 		// only continue if the action is not "Do Nothing"
@@ -164,16 +199,16 @@ class Store_gift_wrapping_ext {
 			// get Quantity input, if there is one
 			$gw_qty_input = $this->EE->input->post($this->settings['store_gw_quantity_field'], TRUE);
 			// debug
-			$this->cart_contents['gw_submitted_qty'] = $gw_qty_input;
+			$this->cart_contents['gw:submitted_qty'] = $gw_qty_input;
 			// sanitize and apply default if needed
 			$gw_qty = ($gw_qty_input === FALSE ? intval($this->settings['store_gw_quantity_default']) : intval($gw_qty_input));
 			// debug
-			$this->cart_contents['gw_qty'] = $gw_qty;
+			$this->cart_contents['gw:qty'] = $gw_qty;
 
 			// get Message input, if there is one
 			$gw_message_input = $this->EE->input->post($this->settings['store_gw_message_field'], TRUE);
 			// debug
-			$this->cart_contents['gw_submitted_message'] = $gw_message_input;
+			$this->cart_contents['gw:submitted_message'] = $gw_message_input;
 			// If there's a message, place it in the input values array. Else, input values is empty.
 			$input_values_array = ($gw_message_input === FALSE ? array() : array('Message' => $gw_message_input));
 			
@@ -183,11 +218,16 @@ class Store_gift_wrapping_ext {
 			// Are we updating quantity, or adding?
 			$gw_update = $gw_action == 'u' ? TRUE : FALSE;
 			// debug
-			$this->cart_contents['gw_update'] = $gw_update;
+			$this->cart_contents['gw:performing_update'] = $gw_update;
 		
 			$this->insert($gw_id,$gw_qty,$mod_values_array,$input_values_array,$gw_update);
 		
 		}
+		
+		// Add a cart_contents printout for front-end debugging
+		
+		unset($this->cart_contents['gw:cart_contents_printr']);
+		$this->cart_contents['gw:cart_contents_printr'] = print_r($this->cart_contents, TRUE);
 		
 		return $this->cart_contents;
 		
@@ -206,11 +246,15 @@ class Store_gift_wrapping_ext {
 	{
 
 		// If there's another extension in the pipe before us, play nice
-		
 		if ($this->EE->extensions->last_call !== FALSE)
 		{
 			$cart_contents = $this->EE->extensions->last_call;
 		}
+
+		//debug: progress indicator
+		$cart_contents['gw:store_cart_update_end'] = 'y';
+		$cart_contents['gw:store_cart_update_end:date'] = date(DATE_RFC1036);
+		$cart_contents['gw:store_cart_update_end:time'] = time();
 
 		// Add a few more gw_ helper variables
 		
@@ -252,13 +296,12 @@ class Store_gift_wrapping_ext {
 
 		// Add a cart_contents printout for front-end debugging
 		
-		unset($cart_contents['gw_cart_contents_printr']);
-		$this->cart_contents = $cart_contents;
-		$this->cart_contents['gw_cart_contents_printr'] = print_r($cart_contents,TRUE);
+		unset($cart_contents['gw:cart_contents_printr']);
+		$cart_contents['gw:cart_contents_printr'] = print_r($cart_contents, TRUE);
 		
 		// And send it all up the pipe
 		
-		return $this->cart_contents;
+		return $cart_contents;
 		
 	} // on_store_cart_update_end
 
@@ -314,7 +357,7 @@ class Store_gift_wrapping_ext {
 	protected function find($entry_id, $mod_values, $input_values)
 	{
 		
-		$this->cart_contents['gw_allow_multiple'] = $this->settings['store_gw_allow_multiple'];
+		$this->cart_contents['gw:allow_multiple'] = $this->settings['store_gw_allow_multiple'];
 		
 		foreach ($this->cart_contents['items'] as $item_key => $item)
 		{
